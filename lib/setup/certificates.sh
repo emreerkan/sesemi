@@ -45,6 +45,7 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = $DOMAIN
 DNS.2 = www.$DOMAIN
+DNS.3 = stage.$DOMAIN
 EOF
         
         if ! openssl req -x509 -nodes -days 365 \
