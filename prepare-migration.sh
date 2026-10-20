@@ -73,6 +73,25 @@ wp_config_get() {
     ' "$config_file" "$name"
 }
 
+# Zips a site root. On a live site, cache and log files vanish during the
+# scan; zip then exits 18 but still writes the archive, so only warn on 18.
+zip_site() {
+    local src="$1"
+    local dest="$2"
+    local rc=0
+    
+    echo -e "${YELLOW}ℹ${RESET} This can take several minutes. zip writes a temp file, so $(basename "$dest") appears only at the end."
+    rm -f "$dest"
+    (cd "$src" && zip -rq "$dest" . -x 'wp-content/cache/wp-rocket/*') || rc=$?
+    
+    if [[ $rc -eq 18 ]]; then
+        echo -e "${YELLOW}⚠${RESET} Some files vanished during the scan (zip exit 18); the archive was still created"
+    elif [[ $rc -ne 0 ]]; then
+        echo -e "${RED}✗${RESET} zip failed for $src (exit $rc)"
+        exit 1
+    fi
+}
+
 # Reads DB_NAME/DB_USER/DB_PASSWORD/DB_HOST into <PREFIX>_DB_* variables
 read_db_config() {
     local config_file="$1"
@@ -162,14 +181,12 @@ else
 fi
 
 echo -e "${BLUE}[3/7]${RESET} Creating production files archive..."
-cd "/home/$DOMAIN"
-zip -rq "$MIGRATION_DIR/$DOMAIN.zip" .
+zip_site "/home/$DOMAIN" "$MIGRATION_DIR/$DOMAIN.zip"
 echo -e "${GREEN}✓${RESET} Production files archived ($(du -h "$MIGRATION_DIR/$DOMAIN.zip" | cut -f1))"
 
 echo -e "${BLUE}[4/7]${RESET} Creating staging files archive..."
 if [[ -d "/home/stage.$DOMAIN" ]]; then
-    cd "/home/stage.$DOMAIN"
-    zip -rq "$MIGRATION_DIR/stage.$DOMAIN.zip" .
+    zip_site "/home/stage.$DOMAIN" "$MIGRATION_DIR/stage.$DOMAIN.zip"
     echo -e "${GREEN}✓${RESET} Staging files archived ($(du -h "$MIGRATION_DIR/stage.$DOMAIN.zip" | cut -f1))"
 else
     echo -e "${YELLOW}⚠${RESET} Creating empty staging archive"
