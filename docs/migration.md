@@ -281,7 +281,7 @@ bash prepare-migration.sh --no-data
 
 ### FTP (`--with-ftp`)
 
-FTP is off by default: no vsftpd package, no service, no ufw rule for 21/30000-31000, no system user, and `FTP_USERNAME`/`FTP_PASSWORD` are not required in `config.env`. Site files are owned by `www-data:www-data` (dirs 755, files 644).
+FTP is off by default: no vsftpd package, no service, no ufw rule for 21/30000-31000, no system user, and `FTP_USERNAME`/`FTP_PASSWORD` are not required in `config.env`. Site files are owned by `www-data:www-data` (dirs 755, files 644, `wp-config.php` 640).
 
 Opt in with `--with-ftp` (or `INSTALL_FTP=1`):
 

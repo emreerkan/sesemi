@@ -17,6 +17,10 @@ set_site_permissions() {
             find "$dir" -type f -exec chmod 664 {} +
         } &>> "$LOG_FILE"
         
+        if [[ -f "$dir/wp-config.php" ]]; then
+            chmod 640 "$dir/wp-config.php" &>> "$LOG_FILE"
+        fi
+        
         if [[ "$shared_root" == "1" ]]; then
             chmod g+s "$dir" &>> "$LOG_FILE"
             if command -v setfacl &> /dev/null; then
@@ -29,5 +33,9 @@ set_site_permissions() {
             find "$dir" -type d -exec chmod 755 {} +
             find "$dir" -type f -exec chmod 644 {} +
         } &>> "$LOG_FILE"
+        
+        if [[ -f "$dir/wp-config.php" ]]; then
+            chmod 640 "$dir/wp-config.php" &>> "$LOG_FILE"
+        fi
     fi
 }

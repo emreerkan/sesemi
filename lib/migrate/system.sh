@@ -48,7 +48,7 @@ setup_system() {
     if id "$USER" &>/dev/null; then
         log_warning "User $USER already exists"
     else
-        ENCYPASSWD=$(perl -e 'print crypt($ARGV[0], "password")' "$PASSWORD")
+        ENCYPASSWD=$(openssl passwd -6 -stdin <<< "$PASSWORD")
         if ! useradd -m -g www-data -p "$ENCYPASSWD" -d "/home/$DOMAIN" "$USER" &>> "$LOG_FILE"; then
             log_error "Failed to create user"
             update_step_status "setup_system" "failed"
