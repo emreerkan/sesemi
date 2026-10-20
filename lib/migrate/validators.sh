@@ -23,12 +23,14 @@ validate_required_files() {
     local required_files=(
         "$DOMAIN-cf-origin.crt"
         "$DOMAIN-cf-origin.key"
-        "$DOMAIN.sql"
-        "stage.$DOMAIN.sql"
         "config.env"
         "$DOMAIN.zip"
         "stage.$DOMAIN.zip"
     )
+    
+    if [[ "$NO_DATA" != "1" ]]; then
+        required_files+=("$DOMAIN.sql" "stage.$DOMAIN.sql")
+    fi
     
     print_substep "Checking for required files..."
     
@@ -67,12 +69,14 @@ validate_required_files() {
         "STAGE_DB_NAME"
         "STAGE_DB_USERNAME"
         "STAGE_DB_PASSWORD"
-        "FTP_USERNAME"
-        "FTP_PASSWORD"
     )
     
+    if [[ "$WITH_FTP" == "1" ]]; then
+        required_vars+=("FTP_USERNAME" "FTP_PASSWORD")
+    fi
+    
     for var in "${required_vars[@]}"; do
-        if [[ -z "${!var}" ]]; then
+        if [[ -z "${!var:-}" ]]; then
             missing_vars+=("$var")
             log_error "Missing variable in config.env: $var"
         fi
@@ -125,9 +129,13 @@ validate_environment() {
     
     print_substep "Checking port availability..."
     local ports_in_use=()
-    local critical_ports=(80 443 21 3306)
+    local critical_ports=(80 443 3306)
     local passive_range_start=40000
     local passive_range_end=40100
+    
+    if [[ "${WITH_FTP:-0}" == "1" ]]; then
+        critical_ports+=(21)
+    fi
     
     for port in "${critical_ports[@]}"; do
         if ss -tuln 2>/dev/null | grep -q ":$port " || netstat -tuln 2>/dev/null | grep -q ":$port "; then
@@ -136,11 +144,13 @@ validate_environment() {
     done
     
     local passive_in_use=0
-    for port in $(seq $passive_range_start $passive_range_end); do
-        if ss -tuln 2>/dev/null | grep -q ":$port " || netstat -tuln 2>/dev/null | grep -q ":$port "; then
-            ((passive_in_use++))
-        fi
-    done
+    if [[ "${WITH_FTP:-0}" == "1" ]]; then
+        for port in $(seq $passive_range_start $passive_range_end); do
+            if ss -tuln 2>/dev/null | grep -q ":$port " || netstat -tuln 2>/dev/null | grep -q ":$port "; then
+                ((passive_in_use++))
+            fi
+        done
+    fi
     
     if [[ ${#ports_in_use[@]} -gt 0 ]]; then
         log_error "Critical ports already in use: ${ports_in_use[*]}"

@@ -25,6 +25,7 @@ create_initial_state() {
   "status": "in_progress",
   "current_step": 0,
   "script_version": "$SCRIPT_VERSION",
+  "data_mode": "$([[ "$NO_DATA" == "1" ]] && echo "no-data" || echo "full")",
   "steps": {
     "validate_files": "pending",
     "validate_environment": "pending",
@@ -90,4 +91,12 @@ get_next_pending_step() {
     done
     
     echo "all_completed"
+}
+
+get_state_data_mode() {
+    local data_mode=""
+    if [[ -f "$STATE_FILE" ]]; then
+        data_mode=$(grep -o '"data_mode": "[^"]*"' "$STATE_FILE" | cut -d'"' -f4 || true)
+    fi
+    echo "${data_mode:-full}"
 }

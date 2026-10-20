@@ -32,6 +32,7 @@ CREDENTIALS_FILE=""
 CONFIG_FILE=""
 STEP_COUNTER=0
 TOTAL_STEPS=12
+WITH_FTP="${INSTALL_FTP:-0}"
 
 # Domain-specific variables (loaded from state or generated)
 USER=""
@@ -81,14 +82,9 @@ finalize_setup() {
     print_step "Finalizing setup"
     update_step_status "finalize" "in_progress"
     
-    cat > "$CREDENTIALS_FILE" <<EOF
-════════════════════════════════════════════════════════════
-  WordPress Server Setup - Credentials
-════════════════════════════════════════════════════════════
-
-Domain: $DOMAIN
-Setup completed: $(date)
-
+    local ftp_section=""
+    if [[ "$WITH_FTP" == "1" ]]; then
+        ftp_section="
 ────────────────────────────────────────────────────────────
 FTP ACCESS
 ────────────────────────────────────────────────────────────
@@ -96,7 +92,17 @@ Host: $DOMAIN
 Username: $USER
 Password: $PASSWORD
 Port: 21
+"
+    fi
+    
+    cat > "$CREDENTIALS_FILE" <<EOF
+════════════════════════════════════════════════════════════
+  WordPress Server Setup - Credentials
+════════════════════════════════════════════════════════════
 
+Domain: $DOMAIN
+Setup completed: $(date)
+${ftp_section}
 ────────────────────────────────────────────────────────────
 MARIADB (MySQL)
 ────────────────────────────────────────────────────────────
@@ -152,6 +158,7 @@ Options:
   --continue            Continue from last successful step
   --restart             Restart installation from beginning
   --cleanup             Remove previous installation
+  --with-ftp            Install and configure vsftpd (default: off; or INSTALL_FTP=1)
   -h, --help            Show this help message
 
 Examples:
@@ -189,6 +196,10 @@ parse_arguments() {
                 ;;
             --cleanup)
                 MODE="cleanup"
+                shift
+                ;;
+            --with-ftp)
+                WITH_FTP=1
                 shift
                 ;;
             -h|--help)
@@ -343,11 +354,13 @@ main() {
     echo -e "${COLOR_GREEN}╚═══════════════════════════════════════════════════════════╝${COLOR_RESET}"
     echo ""
     
-    echo -e "${COLOR_BOLD}FTP Access:${COLOR_RESET}"
-    echo "  Host:     $DOMAIN"
-    echo "  User:     $USER"
-    echo "  Password: $PASSWORD"
-    echo ""
+    if [[ "$WITH_FTP" == "1" ]]; then
+        echo -e "${COLOR_BOLD}FTP Access:${COLOR_RESET}"
+        echo "  Host:     $DOMAIN"
+        echo "  User:     $USER"
+        echo "  Password: $PASSWORD"
+        echo ""
+    fi
     
     echo -e "${COLOR_BOLD}MariaDB:${COLOR_RESET}"
     echo "  Root Password: $MARIADB_ROOT_PWD"

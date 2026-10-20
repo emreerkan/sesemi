@@ -5,6 +5,13 @@
 ################################################################################
 
 configure_ftp() {
+    if [[ "${WITH_FTP:-0}" != "1" ]]; then
+        echo "FTP: skipped (use --with-ftp to install)"
+        log "FTP: skipped (use --with-ftp to install)"
+        update_step_status "configure_ftp" "completed"
+        return 0
+    fi
+    
     if check_step_completed "configure_ftp"; then
         log_info "FTP already configured, skipping..."
         return 0

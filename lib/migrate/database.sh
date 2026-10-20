@@ -70,6 +70,12 @@ EOF
 }
 
 import_databases() {
+    if [[ "$NO_DATA" == "1" ]]; then
+        log_info "Database import skipped (--no-data): databases stay empty"
+        update_step_status "import_databases" "completed"
+        return 0
+    fi
+    
     if check_step_completed "import_databases"; then
         log_info "Databases already imported, skipping..."
         return 0

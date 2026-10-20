@@ -53,8 +53,13 @@ setup_system() {
     if id "$USER" &>/dev/null; then
         log_warning "User $USER already exists"
     else
-        ENCYPASSWD=$(perl -e 'print crypt($ARGV[0], "password")' "$PASSWORD")
-        if ! useradd -m -g www-data -p "$ENCYPASSWD" -d "/home/$DOMAIN" "$USER" &>> "$LOG_FILE"; then
+        # Without FTP the user only owns the files; leave its password locked
+        local passwd_args=()
+        if [[ "$WITH_FTP" == "1" ]]; then
+            ENCYPASSWD=$(perl -e 'print crypt($ARGV[0], "password")' "$PASSWORD")
+            passwd_args=(-p "$ENCYPASSWD")
+        fi
+        if ! useradd -m -g www-data "${passwd_args[@]}" -d "/home/$DOMAIN" "$USER" &>> "$LOG_FILE"; then
             log_error "Failed to create user"
             update_step_status "setup_system" "failed"
             exit 1

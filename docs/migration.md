@@ -262,6 +262,27 @@ Or explicitly continue:
 sudo ./migrate.sh example.com /root/migration --continue
 ```
 
+### No-Data Mode (`--no-data`)
+
+Move files, vhosts, certs and empty databases first; stream the DB yourself later.
+
+```bash
+# Source: skip the prod/stage SQL dumps
+bash prepare-migration.sh --no-data
+
+# Target: flag may appear in any position
+./migrate.sh example.com /root/migration --no-data
+```
+
+- `.sql` files are not required.
+- Prod and stage databases and users are created with the `config.env` credentials; nothing is imported.
+- The mode is stored in `state.json` (`"data_mode": "no-data"`); `--continue` keeps it.
+- The final output and `migration_summary.txt` list the DB steps to run after your import.
+
+### FTP (`--with-ftp`)
+
+FTP is off by default: no vsftpd package, no service, no ufw rule for 21/30000-31000, no FTP password on the site user, and `FTP_USERNAME`/`FTP_PASSWORD` are not required in `config.env`. Opt in with `--with-ftp` (or `INSTALL_FTP=1`) on `migrate.sh` or `setup.sh`. Pass it again on `--continue`; it is not stored in state.
+
 ### Restart Migration
 
 ```bash

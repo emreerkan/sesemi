@@ -39,7 +39,12 @@ install_packages() {
     print_substep "Installing Apache, MariaDB, PHP, and related packages..."
     print_substep "This may take several minutes..."
     
-    if ! apt install -y apache2 mariadb-server libapache2-mod-php ufw vsftpd \
+    local ftp_pkg=""
+    if [[ "${WITH_FTP:-0}" == "1" ]]; then
+        ftp_pkg="vsftpd"
+    fi
+    
+    if ! apt install -y apache2 mariadb-server libapache2-mod-php ufw $ftp_pkg \
         php php-{opcache,imagick,pear,cgi,curl,gd,mysqlnd,bcmath,json,intl,zip,imap,mbstring} &>> "$LOG_FILE"; then
         log_error "Failed to install web server packages"
         update_step_status "install_packages" "failed"

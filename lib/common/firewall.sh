@@ -19,11 +19,13 @@ configure_firewall() {
     print_substep "Allowing Apache Full (HTTP + HTTPS)..."
     ufw allow 'Apache Full' &>> "$LOG_FILE"
     
-    print_substep "Allowing FTP (port 21)..."
-    ufw allow 21/tcp &>> "$LOG_FILE"
-    
-    print_substep "Allowing FTP passive mode (ports 30000-31000)..."
-    ufw allow 30000:31000/tcp &>> "$LOG_FILE"
+    if [[ "${WITH_FTP:-0}" == "1" ]]; then
+        print_substep "Allowing FTP (port 21)..."
+        ufw allow 21/tcp &>> "$LOG_FILE"
+        
+        print_substep "Allowing FTP passive mode (ports 30000-31000)..."
+        ufw allow 30000:31000/tcp &>> "$LOG_FILE"
+    fi
     
     print_substep "Enabling firewall..."
     if ! ufw --force enable &>> "$LOG_FILE"; then

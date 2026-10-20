@@ -13,6 +13,24 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RESET='\033[0m'
 
+NO_DATA=0
+for arg in "$@"; do
+    case $arg in
+        --no-data)
+            NO_DATA=1
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--no-data]"
+            echo "  --no-data   Skip the prod and stage SQL dumps (files, certs, config.env only)"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}✗${RESET} Unknown option: $arg"
+            exit 1
+            ;;
+    esac
+done
+
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${RESET}"
 echo -e "${BLUE}║           WordPress Migration File Preparation            ║${RESET}"
 echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${RESET}"
@@ -27,53 +45,62 @@ mkdir -p "$MIGRATION_DIR"
 echo -e "${GREEN}✓${RESET} Created migration directory: $MIGRATION_DIR"
 echo ""
 
-echo -e "${BLUE}[1/7]${RESET} Exporting production database..."
-if [[ -d "/home/$DOMAIN" ]]; then
-    cd "/home/$DOMAIN"
-    if wp --allow-root db export "$MIGRATION_DIR/$DOMAIN.sql" 2>/dev/null; then
-        echo -e "${GREEN}✓${RESET} Production database exported"
-    else
-        echo -e "${YELLOW}⚠${RESET} Could not export with WP-CLI, trying mysqldump..."
-        if [[ -f wp-config.php ]]; then
-            DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
-            DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
-            DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
-            
-            mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$MIGRATION_DIR/$DOMAIN.sql"
-            echo -e "${GREEN}✓${RESET} Production database exported with mysqldump"
-        else
-            echo -e "${RED}✗${RESET} Could not export production database"
-            exit 1
-        fi
+if [[ "$NO_DATA" == "1" ]]; then
+    echo -e "${BLUE}[1/7]${RESET} Exporting production database... ${YELLOW}skipped (--no-data)${RESET}"
+    echo -e "${BLUE}[2/7]${RESET} Exporting staging database... ${YELLOW}skipped (--no-data)${RESET}"
+    if [[ ! -d "/home/$DOMAIN" ]]; then
+        echo -e "${RED}✗${RESET} Production directory not found: /home/$DOMAIN"
+        exit 1
     fi
 else
-    echo -e "${RED}✗${RESET} Production directory not found: /home/$DOMAIN"
-    exit 1
-fi
+    echo -e "${BLUE}[1/7]${RESET} Exporting production database..."
+    if [[ -d "/home/$DOMAIN" ]]; then
+        cd "/home/$DOMAIN"
+        if wp --allow-root db export "$MIGRATION_DIR/$DOMAIN.sql" 2>/dev/null; then
+            echo -e "${GREEN}✓${RESET} Production database exported"
+        else
+            echo -e "${YELLOW}⚠${RESET} Could not export with WP-CLI, trying mysqldump..."
+            if [[ -f wp-config.php ]]; then
+                DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
+                DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
+                DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
+            
+                mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$MIGRATION_DIR/$DOMAIN.sql"
+                echo -e "${GREEN}✓${RESET} Production database exported with mysqldump"
+            else
+                echo -e "${RED}✗${RESET} Could not export production database"
+                exit 1
+            fi
+        fi
+    else
+        echo -e "${RED}✗${RESET} Production directory not found: /home/$DOMAIN"
+        exit 1
+    fi
 
-echo -e "${BLUE}[2/7]${RESET} Exporting staging database..."
-if [[ -d "/home/stage.$DOMAIN" ]]; then
-    cd "/home/stage.$DOMAIN"
-    if wp --allow-root db export "$MIGRATION_DIR/stage.$DOMAIN.sql" 2>/dev/null; then
-        echo -e "${GREEN}✓${RESET} Staging database exported"
-    else
-        echo -e "${YELLOW}⚠${RESET} Could not export with WP-CLI, trying mysqldump..."
-        if [[ -f wp-config.php ]]; then
-            DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
-            DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
-            DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
-            
-            mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$MIGRATION_DIR/stage.$DOMAIN.sql"
-            echo -e "${GREEN}✓${RESET} Staging database exported with mysqldump"
+    echo -e "${BLUE}[2/7]${RESET} Exporting staging database..."
+    if [[ -d "/home/stage.$DOMAIN" ]]; then
+        cd "/home/stage.$DOMAIN"
+        if wp --allow-root db export "$MIGRATION_DIR/stage.$DOMAIN.sql" 2>/dev/null; then
+            echo -e "${GREEN}✓${RESET} Staging database exported"
         else
-            echo -e "${RED}✗${RESET} Could not export staging database"
-            exit 1
+            echo -e "${YELLOW}⚠${RESET} Could not export with WP-CLI, trying mysqldump..."
+            if [[ -f wp-config.php ]]; then
+                DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
+                DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
+                DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
+            
+                mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$MIGRATION_DIR/stage.$DOMAIN.sql"
+                echo -e "${GREEN}✓${RESET} Staging database exported with mysqldump"
+            else
+                echo -e "${RED}✗${RESET} Could not export staging database"
+                exit 1
+            fi
         fi
+    else
+        echo -e "${YELLOW}⚠${RESET} Staging directory not found: /home/stage.$DOMAIN"
+        echo -e "${YELLOW}⚠${RESET} Creating empty SQL file for staging"
+        touch "$MIGRATION_DIR/stage.$DOMAIN.sql"
     fi
-else
-    echo -e "${YELLOW}⚠${RESET} Staging directory not found: /home/stage.$DOMAIN"
-    echo -e "${YELLOW}⚠${RESET} Creating empty SQL file for staging"
-    touch "$MIGRATION_DIR/stage.$DOMAIN.sql"
 fi
 
 echo -e "${BLUE}[3/7]${RESET} Creating production files archive..."
@@ -171,5 +198,5 @@ echo -e "   ${YELLOW}scp $TARBALL root@NEW_SERVER_IP:~${RESET}"
 echo ""
 echo "2. On new server, extract and run migration:"
 echo -e "   ${YELLOW}tar -xzf migration-$DOMAIN.tar.gz${RESET}"
-echo -e "   ${YELLOW}./migrate.sh $DOMAIN ./migration-$DOMAIN${RESET}"
+echo -e "   ${YELLOW}./migrate.sh $DOMAIN ./migration-$DOMAIN$([[ "$NO_DATA" == "1" ]] && echo " --no-data")${RESET}"
 echo ""

@@ -29,6 +29,8 @@ LOG_FILE=""
 STATE_FILE=""
 STEP_COUNTER=0
 TOTAL_STEPS=13
+WITH_FTP="${INSTALL_FTP:-0}"
+NO_DATA=0
 
 # Configuration variables (loaded from config.env)
 PROD_DB_NAME=""
@@ -78,6 +80,29 @@ finalize_migration() {
 
     source "$MIGRATION_DIR/config.env"
 
+    local ftp_section=""
+    local ftp_next_step=""
+    if [[ "$WITH_FTP" == "1" ]]; then
+        ftp_section="
+────────────────────────────────────────────────────────────
+FTP ACCESS
+────────────────────────────────────────────────────────────
+Host: $DOMAIN
+Username: $FTP_USERNAME
+Password: $FTP_PASSWORD
+Port: 21
+"
+        ftp_next_step="
+- Test FTP access"
+    fi
+
+    local no_data_section=""
+    if [[ "$NO_DATA" == "1" ]]; then
+        no_data_section="
+$(print_no_data_steps)
+"
+    fi
+
     cat > "$STATE_DIR/migration_summary.txt" <<EOF
 ════════════════════════════════════════════════════════════
   WordPress Server Migration - Summary
@@ -91,15 +116,8 @@ MIGRATION DETAILS
 ────────────────────────────────────────────────────────────
 Source: Previous server
 Destination: This server ($(hostname))
-
-────────────────────────────────────────────────────────────
-FTP ACCESS
-────────────────────────────────────────────────────────────
-Host: $DOMAIN
-Username: $FTP_USERNAME
-Password: $FTP_PASSWORD
-Port: 21
-
+Data mode: $([[ "$NO_DATA" == "1" ]] && echo "no-data (databases created empty)" || echo "full")
+${ftp_section}
 ────────────────────────────────────────────────────────────
 MARIADB (MySQL)
 ────────────────────────────────────────────────────────────
@@ -129,15 +147,14 @@ SSL CERTIFICATES
 ────────────────────────────────────────────────────────────
 Certificate: /home/ssl/$CERT_FILE
 Key: /home/ssl/$KEY_FILE
-
+${no_data_section}
 ────────────────────────────────────────────────────────────
 NEXT STEPS
 ────────────────────────────────────────────────────────────
-1. Update DNS records to point to this server
-2. Test both production and staging sites
-3. Verify database connections
-4. Test FTP access
-5. Monitor Apache logs for any issues
+- Update DNS records to point to this server
+- Test both production and staging sites
+- Verify database connections${ftp_next_step}
+- Monitor Apache logs for any issues
 
 ════════════════════════════════════════════════════════════
 EOF
@@ -149,6 +166,26 @@ EOF
     update_state_status "completed"
 }
 
+print_no_data_steps() {
+    cat <<EOF
+────────────────────────────────────────────────────────────
+SKIPPED BECAUSE OF --no-data (run after your import)
+────────────────────────────────────────────────────────────
+Databases were created empty with the config.env credentials.
+
+1. Import production DB:
+   mysql -u root $PROD_DB_NAME < $DOMAIN.sql
+   (or stream it: ssh SOURCE "mysqldump --single-transaction --quick DB" | mysql -u root $PROD_DB_NAME)
+
+2. Import staging DB (or fill it later with wp-stage-sync):
+   mysql -u root $STAGE_DB_NAME < stage.$DOMAIN.sql
+
+3. Only if the domain changed (replace OLD_DOMAIN):
+   wp --allow-root --path=/home/$DOMAIN search-replace '//OLD_DOMAIN' '//$DOMAIN' --all-tables --precise --skip-columns=guid
+   wp --allow-root --path=/home/$DOMAIN cache flush
+EOF
+}
+
 ################################################################################
 # MAIN EXECUTION FLOW
 ################################################################################
@@ -156,6 +193,7 @@ EOF
 show_usage() {
     cat <<EOF
 Usage: $0 <domain> [migration-directory] [options]
+       (options are accepted in any position)
 
 Arguments:
   domain                 Domain name being migrated (e.g., example.com)
@@ -164,13 +202,16 @@ Arguments:
 Options:
   --continue            Continue from last successful step
   --restart             Restart migration from beginning
+  --no-data             Create empty DBs (config.env credentials), import nothing,
+                        skip .sql validation. Mode is stored in state.json.
+  --with-ftp            Install and configure vsftpd (default: off; or INSTALL_FTP=1)
   -h, --help            Show this help message
 
 Required Files (in migration directory):
   - domain-cf-origin.crt
   - domain-cf-origin.key
-  - domain.sql
-  - stage.domain.sql
+  - domain.sql            (not with --no-data)
+  - stage.domain.sql      (not with --no-data)
   - config.env
   - domain.zip
   - stage.domain.zip
@@ -180,28 +221,58 @@ Examples:
   $0 example.com /root/migration-files
   $0 example.com --continue
   $0 example.com /root/migration-files --restart
+  $0 example.com /root/migration-files --no-data
 
 EOF
 }
 
 parse_arguments() {
-    if [[ $# -eq 0 ]]; then
+    local positionals=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --continue)
+                MODE="continue"
+                ;;
+            --restart)
+                MODE="restart"
+                ;;
+            --no-data)
+                NO_DATA=1
+                ;;
+            --with-ftp)
+                WITH_FTP=1
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+            *)
+                positionals+=("$1")
+                ;;
+        esac
+        shift
+    done
+
+    if [[ ${#positionals[@]} -gt 2 ]]; then
+        log_error "Too many arguments: ${positionals[*]}"
+        show_usage
+        exit 1
+    fi
+
+    if [[ ${#positionals[@]} -eq 0 ]]; then
         echo -n "Enter domain name: "
         read DOMAIN
         DOMAIN=${DOMAIN/www./}
-        MIGRATION_DIR="$(pwd)"
     else
-        DOMAIN="${1/www./}"
-        shift
-        
-        # Check if next argument is a directory or an option
-        if [[ $# -gt 0 ]] && [[ ! "$1" =~ ^-- ]]; then
-            MIGRATION_DIR="$1"
-            shift
-        else
-            MIGRATION_DIR="$(pwd)"
-        fi
+        DOMAIN="${positionals[0]/www./}"
     fi
+    MIGRATION_DIR="${positionals[1]:-$(pwd)}"
     
     if ! validate_domain_format "$DOMAIN"; then
         exit 1
@@ -211,28 +282,6 @@ parse_arguments() {
         log_error "Migration directory does not exist: $MIGRATION_DIR"
         exit 1
     }
-
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --continue)
-                MODE="continue"
-                shift
-                ;;
-            --restart)
-                MODE="restart"
-                shift
-                ;;
-            -h|--help)
-                show_usage
-                exit 0
-                ;;
-            *)
-                log_error "Unknown option: $1"
-                show_usage
-                exit 1
-                ;;
-        esac
-    done
 }
 
 detect_previous_migration() {
@@ -335,8 +384,21 @@ main() {
             log_error "Cannot continue: no previous state found"
             exit 1
         fi
+        # The stored mode wins so a resumed --no-data run never imports
+        local state_data_mode
+        state_data_mode=$(get_state_data_mode)
+        if [[ "$state_data_mode" == "no-data" ]]; then
+            NO_DATA=1
+        elif [[ "$NO_DATA" == "1" ]]; then
+            log_warning "State was created without --no-data; ignoring --no-data on continue"
+            NO_DATA=0
+        fi
     else
         create_initial_state
+    fi
+
+    if [[ "$NO_DATA" == "1" ]]; then
+        log_info "Data mode: no-data (databases are created empty, nothing is imported)"
     fi
 
     CERT_FILE="$DOMAIN-cf-origin.crt"
@@ -372,11 +434,13 @@ main() {
     echo "  Staging:    https://stage.$DOMAIN"
     echo ""
     
-    echo -e "${COLOR_BOLD}FTP Access:${COLOR_RESET}"
-    echo "  Host:     $DOMAIN"
-    echo "  User:     $FTP_USERNAME"
-    echo "  Password: $FTP_PASSWORD"
-    echo ""
+    if [[ "$WITH_FTP" == "1" ]]; then
+        echo -e "${COLOR_BOLD}FTP Access:${COLOR_RESET}"
+        echo "  Host:     $DOMAIN"
+        echo "  User:     $FTP_USERNAME"
+        echo "  Password: $FTP_PASSWORD"
+        echo ""
+    fi
     
     echo -e "${COLOR_BOLD}Database (MariaDB):${COLOR_RESET}"
     echo "  Root Password: $MARIADB_ROOT_PWD"
@@ -387,6 +451,12 @@ main() {
     echo "  2. Test both production and staging sites"
     echo "  3. Verify database connections"
     echo ""
+
+    if [[ "$NO_DATA" == "1" ]]; then
+        echo -e "${COLOR_YELLOW}"
+        print_no_data_steps
+        echo -e "${COLOR_RESET}"
+    fi
     
     echo -e "${COLOR_CYAN}ℹ${COLOR_RESET} Full migration summary: ${COLOR_BOLD}$STATE_DIR/migration_summary.txt${COLOR_RESET}"
     echo -e "${COLOR_CYAN}ℹ${COLOR_RESET} Migration log: ${COLOR_BOLD}$LOG_FILE${COLOR_RESET}"

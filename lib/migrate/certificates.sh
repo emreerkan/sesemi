@@ -27,9 +27,6 @@ setup_certificates() {
     
     print_substep "Found Cloudflare origin certificates"
     
-    exit 1
-    fi
-    
     print_substep "Installing certificates..."
     mkdir -p /home/ssl
     
