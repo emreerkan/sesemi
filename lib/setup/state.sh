@@ -27,6 +27,7 @@ create_initial_state() {
   "status": "in_progress",
   "current_step": 0,
   "script_version": "$SCRIPT_VERSION",
+  "with_ftp": "$WITH_FTP",
   "steps": {
     "validate_environment": "pending",
     "setup_certificates": "pending",
@@ -126,4 +127,14 @@ get_next_pending_step() {
     done
     
     echo "all_completed"
+}
+
+get_state_value() {
+    local key="$1"
+    local default="$2"
+    local value=""
+    if [[ -f "$STATE_FILE" ]]; then
+        value=$(grep -o "\"$key\": \"[^\"]*\"" "$STATE_FILE" | cut -d'"' -f4 || true)
+    fi
+    echo "${value:-$default}"
 }

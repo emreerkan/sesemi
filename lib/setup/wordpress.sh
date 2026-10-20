@@ -77,11 +77,7 @@ define( 'FS_METHOD', 'direct' );" wp-config.php
     log_success "Added FS_METHOD to wp-config.php"
     
     print_substep "Setting file permissions..."
-    chown -R "$USER:www-data" . &>> "$LOG_FILE"
-    find . -type d -exec chmod 775 {} \; &>> "$LOG_FILE"
-    find . -type f -exec chmod 664 {} \; &>> "$LOG_FILE"
-    chmod g+s "/home/$DOMAIN" &>> "$LOG_FILE"
-    setfacl -d -m g::rwx "/home/$DOMAIN" &>> "$LOG_FILE"
+    set_site_permissions "/home/$DOMAIN" 1
     
     log_success "WordPress production installed at https://$DOMAIN"
     
@@ -127,9 +123,7 @@ define( 'FS_METHOD', 'direct' );" wp-config.php
     log_success "Added FS_METHOD to wp-config.php"
     
     print_substep "Setting file permissions..."
-    chown -R "$USER:www-data" . &>> "$LOG_FILE"
-    find . -type d -exec chmod 775 {} \; &>> "$LOG_FILE"
-    find . -type f -exec chmod 664 {} \; &>> "$LOG_FILE"
+    set_site_permissions "/home/stage.$DOMAIN"
     
     log_success "WordPress staging installed at https://stage.$DOMAIN"
     

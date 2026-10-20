@@ -14,14 +14,19 @@ BLUE='\033[0;34m'
 RESET='\033[0m'
 
 NO_DATA=0
+WITH_FTP="${INSTALL_FTP:-0}"
 for arg in "$@"; do
     case $arg in
         --no-data)
             NO_DATA=1
             ;;
+        --with-ftp)
+            WITH_FTP=1
+            ;;
         -h|--help)
-            echo "Usage: $0 [--no-data]"
+            echo "Usage: $0 [--no-data] [--with-ftp]"
             echo "  --no-data   Skip the prod and stage SQL dumps (files, certs, config.env only)"
+            echo "  --with-ftp  Ask for the FTP password and add FTP credentials to config.env"
             exit 0
             ;;
         *)
@@ -30,6 +35,63 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Reads a define() value from wp-config.php. WP-CLI evaluates the file, so
+# getenv() and double quotes work; the PHP tokenizer fallback handles literal
+# values in either quote style and ignores commented-out defines.
+wp_config_get() {
+    local config_file="$1"
+    local name="$2"
+    local value
+    
+    if command -v wp &> /dev/null && value=$(wp --allow-root config get "$name" --config-file="$config_file" 2>/dev/null); then
+        printf '%s' "$value"
+        return 0
+    fi
+    
+    # shellcheck disable=SC2016
+    php -r '
+        $tokens = array();
+        foreach (token_get_all(file_get_contents($argv[1])) as $t) {
+            if (is_array($t) && in_array($t[0], array(T_WHITESPACE, T_COMMENT, T_DOC_COMMENT))) continue;
+            $tokens[] = $t;
+        }
+        $lit = function ($t) {
+            if (!is_array($t) || $t[0] !== T_CONSTANT_ENCAPSED_STRING) return null;
+            return $t[1][0] === "\x27" ? strtr(substr($t[1], 1, -1), array("\\\x27" => "\x27", "\\\\" => "\\")) : stripcslashes(substr($t[1], 1, -1));
+        };
+        for ($i = 0; $i + 4 < count($tokens); $i++) {
+            if (is_array($tokens[$i]) && strtolower($tokens[$i][1]) === "define" && $tokens[$i + 1] === "("
+                && $lit($tokens[$i + 2]) === $argv[2] && $tokens[$i + 3] === ",") {
+                $v = $lit($tokens[$i + 4]);
+                if ($v === null) exit(2);
+                echo $v;
+                exit(0);
+            }
+        }
+        exit(1);
+    ' "$config_file" "$name"
+}
+
+# Reads DB_NAME/DB_USER/DB_PASSWORD/DB_HOST into <PREFIX>_DB_* variables
+read_db_config() {
+    local config_file="$1"
+    local prefix="$2"
+    local key var value
+    
+    for key in NAME USER PASSWORD HOST; do
+        if ! value=$(wp_config_get "$config_file" "DB_$key"); then
+            if [[ "$key" == "HOST" ]]; then
+                value="localhost"
+            else
+                echo -e "${RED}✗${RESET} Could not read DB_$key from $config_file"
+                exit 1
+            fi
+        fi
+        var="${prefix}_DB_$key"
+        printf -v "$var" '%s' "$value"
+    done
+}
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${RESET}"
 echo -e "${BLUE}║           WordPress Migration File Preparation            ║${RESET}"
@@ -61,11 +123,9 @@ else
         else
             echo -e "${YELLOW}⚠${RESET} Could not export with WP-CLI, trying mysqldump..."
             if [[ -f wp-config.php ]]; then
-                DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
-                DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
-                DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
+                read_db_config "$PWD/wp-config.php" DUMP
             
-                mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$MIGRATION_DIR/$DOMAIN.sql"
+                mysqldump --single-transaction --quick -h "${DUMP_DB_HOST%%:*}" -u "$DUMP_DB_USER" -p"$DUMP_DB_PASSWORD" "$DUMP_DB_NAME" > "$MIGRATION_DIR/$DOMAIN.sql"
                 echo -e "${GREEN}✓${RESET} Production database exported with mysqldump"
             else
                 echo -e "${RED}✗${RESET} Could not export production database"
@@ -85,11 +145,9 @@ else
         else
             echo -e "${YELLOW}⚠${RESET} Could not export with WP-CLI, trying mysqldump..."
             if [[ -f wp-config.php ]]; then
-                DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
-                DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
-                DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
+                read_db_config "$PWD/wp-config.php" DUMP
             
-                mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$MIGRATION_DIR/stage.$DOMAIN.sql"
+                mysqldump --single-transaction --quick -h "${DUMP_DB_HOST%%:*}" -u "$DUMP_DB_USER" -p"$DUMP_DB_PASSWORD" "$DUMP_DB_NAME" > "$MIGRATION_DIR/stage.$DOMAIN.sql"
                 echo -e "${GREEN}✓${RESET} Staging database exported with mysqldump"
             else
                 echo -e "${RED}✗${RESET} Could not export staging database"
@@ -132,40 +190,44 @@ fi
 
 echo -e "${BLUE}[6/7]${RESET} Creating config.env..."
 
-cd "/home/$DOMAIN"
-PROD_DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
-PROD_DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
-PROD_DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
+read_db_config "/home/$DOMAIN/wp-config.php" PROD
 
 if [[ -f "/home/stage.$DOMAIN/wp-config.php" ]]; then
-    cd "/home/stage.$DOMAIN"
-    STAGE_DB_NAME=$(grep DB_NAME wp-config.php | cut -d "'" -f 4)
-    STAGE_DB_USER=$(grep DB_USER wp-config.php | cut -d "'" -f 4)
-    STAGE_DB_PASS=$(grep DB_PASSWORD wp-config.php | cut -d "'" -f 4)
+    read_db_config "/home/stage.$DOMAIN/wp-config.php" STAGE
 else
     STAGE_DB_NAME="stage_db_name"
     STAGE_DB_USER="stage_db_user"
-    STAGE_DB_PASS="stage_db_pass"
+    STAGE_DB_PASSWORD="stage_db_pass"
+    STAGE_DB_HOST="localhost"
 fi
 
-FTP_USER=$(cut -d '.' -f 1 <<< "$DOMAIN")
-echo ""
-echo -e "${YELLOW}Please enter FTP password for user: $FTP_USER${RESET}"
-read -s -p "FTP Password: " FTP_PASS
-echo ""
+echo -e "${GREEN}✓${RESET} Production DB: $PROD_DB_NAME (user $PROD_DB_USER, host $PROD_DB_HOST)"
+echo -e "${GREEN}✓${RESET} Staging DB: $STAGE_DB_NAME (user $STAGE_DB_USER, host $STAGE_DB_HOST)"
 
-cat > "$MIGRATION_DIR/config.env" <<EOF
-PROD_DB_NAME="$PROD_DB_NAME"
-PROD_DB_USERNAME="$PROD_DB_USER"
-PROD_DB_PASSWORD="$PROD_DB_PASS"
+# %q keeps passwords with quotes, $ or backslashes intact when sourced
+{
+    printf 'PROD_DB_NAME=%q\n' "$PROD_DB_NAME"
+    printf 'PROD_DB_USERNAME=%q\n' "$PROD_DB_USER"
+    printf 'PROD_DB_PASSWORD=%q\n' "$PROD_DB_PASSWORD"
+    printf 'PROD_DB_HOST=%q\n\n' "$PROD_DB_HOST"
+    printf 'STAGE_DB_NAME=%q\n' "$STAGE_DB_NAME"
+    printf 'STAGE_DB_USERNAME=%q\n' "$STAGE_DB_USER"
+    printf 'STAGE_DB_PASSWORD=%q\n' "$STAGE_DB_PASSWORD"
+    printf 'STAGE_DB_HOST=%q\n' "$STAGE_DB_HOST"
+} > "$MIGRATION_DIR/config.env"
 
-STAGE_DB_NAME="$STAGE_DB_NAME"
-STAGE_DB_USERNAME="$STAGE_DB_USER"
-STAGE_DB_PASSWORD="$STAGE_DB_PASS"
-
-FTP_USERNAME="$FTP_USER"
-FTP_PASSWORD="$FTP_PASS"
-EOF
+if [[ "$WITH_FTP" == "1" ]]; then
+    FTP_USER=$(cut -d '.' -f 1 <<< "$DOMAIN")
+    echo ""
+    echo -e "${YELLOW}Please enter FTP password for user: $FTP_USER${RESET}"
+    read -r -s -p "FTP Password: " FTP_PASS
+    echo ""
+    {
+        echo ""
+        printf 'FTP_USERNAME=%q\n' "$FTP_USER"
+        printf 'FTP_PASSWORD=%q\n' "$FTP_PASS"
+    } >> "$MIGRATION_DIR/config.env"
+fi
 
 chmod 600 "$MIGRATION_DIR/config.env"
 echo -e "${GREEN}✓${RESET} config.env created"
@@ -198,5 +260,5 @@ echo -e "   ${YELLOW}scp $TARBALL root@NEW_SERVER_IP:~${RESET}"
 echo ""
 echo "2. On new server, extract and run migration:"
 echo -e "   ${YELLOW}tar -xzf migration-$DOMAIN.tar.gz${RESET}"
-echo -e "   ${YELLOW}./migrate.sh $DOMAIN ./migration-$DOMAIN$([[ "$NO_DATA" == "1" ]] && echo " --no-data")${RESET}"
+echo -e "   ${YELLOW}./migrate.sh $DOMAIN ./migration-$DOMAIN$([[ "$NO_DATA" == "1" ]] && echo " --no-data")$([[ "$WITH_FTP" == "1" ]] && echo " --with-ftp")${RESET}"
 echo ""

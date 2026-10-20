@@ -26,6 +26,7 @@ create_initial_state() {
   "current_step": 0,
   "script_version": "$SCRIPT_VERSION",
   "data_mode": "$([[ "$NO_DATA" == "1" ]] && echo "no-data" || echo "full")",
+  "with_ftp": "$WITH_FTP",
   "steps": {
     "validate_files": "pending",
     "validate_environment": "pending",
@@ -93,10 +94,12 @@ get_next_pending_step() {
     echo "all_completed"
 }
 
-get_state_data_mode() {
-    local data_mode=""
+get_state_value() {
+    local key="$1"
+    local default="$2"
+    local value=""
     if [[ -f "$STATE_FILE" ]]; then
-        data_mode=$(grep -o '"data_mode": "[^"]*"' "$STATE_FILE" | cut -d'"' -f4 || true)
+        value=$(grep -o "\"$key\": \"[^\"]*\"" "$STATE_FILE" | cut -d'"' -f4 || true)
     fi
-    echo "${data_mode:-full}"
+    echo "${value:-$default}"
 }

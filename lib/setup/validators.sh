@@ -16,6 +16,12 @@ validate_domain_format() {
 }
 
 validate_environment() {
+    # On --continue our own Apache/MariaDB hold 80/443/3306; don't re-check
+    if check_step_completed "validate_environment"; then
+        log_info "Environment already validated, skipping..."
+        return 0
+    fi
+    
     print_step "Validating environment"
     update_step_status "validate_environment" "in_progress"
     
@@ -47,8 +53,9 @@ validate_environment() {
     print_substep "Checking port availability..."
     local ports_in_use=()
     local critical_ports=(80 443 3306)
-    local passive_range_start=40000
-    local passive_range_end=40100
+    # Must match pasv_min_port/pasv_max_port in lib/common/ftp.sh
+    local passive_range_start=30000
+    local passive_range_end=31000
     
     if [[ "${WITH_FTP:-0}" == "1" ]]; then
         critical_ports+=(21)
@@ -62,11 +69,8 @@ validate_environment() {
     
     local passive_in_use=0
     if [[ "${WITH_FTP:-0}" == "1" ]]; then
-        for port in $(seq $passive_range_start $passive_range_end); do
-            if ss -tuln 2>/dev/null | grep -q ":$port " || netstat -tuln 2>/dev/null | grep -q ":$port "; then
-                ((passive_in_use++))
-            fi
-        done
+        passive_in_use=$(ss -Htuln 2>/dev/null | awk -v s="$passive_range_start" -v e="$passive_range_end" \
+            '{ n = split($5, a, ":"); p = a[n] + 0; if (p >= s && p <= e) c++ } END { print c + 0 }')
     fi
     
     if [[ ${#ports_in_use[@]} -gt 0 ]]; then

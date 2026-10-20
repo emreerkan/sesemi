@@ -66,6 +66,7 @@ source "$SCRIPT_DIR/lib/common/apache.sh"
 source "$SCRIPT_DIR/lib/common/firewall.sh"
 source "$SCRIPT_DIR/lib/setup/database.sh"
 source "$SCRIPT_DIR/lib/common/ftp.sh"
+source "$SCRIPT_DIR/lib/common/permissions.sh"
 source "$SCRIPT_DIR/lib/common/wpcli.sh"
 source "$SCRIPT_DIR/lib/setup/wordpress.sh"
 source "$SCRIPT_DIR/lib/setup/cleanup.sh"
@@ -158,7 +159,8 @@ Options:
   --continue            Continue from last successful step
   --restart             Restart installation from beginning
   --cleanup             Remove previous installation
-  --with-ftp            Install and configure vsftpd (default: off; or INSTALL_FTP=1)
+  --with-ftp            Install vsftpd and create the site user (default: off; or
+                        INSTALL_FTP=1). Stored in state.json.
   -h, --help            Show this help message
 
 Examples:
@@ -324,6 +326,13 @@ main() {
                 exit 0
             fi
             log_info "Next step: $next_step"
+            # The stored FTP setting wins so a resumed run behaves like the first one
+            local state_with_ftp
+            state_with_ftp=$(get_state_value "with_ftp" "$WITH_FTP")
+            if [[ "$state_with_ftp" != "$WITH_FTP" ]]; then
+                log_warning "Using FTP setting from state (with_ftp=$state_with_ftp)"
+                WITH_FTP="$state_with_ftp"
+            fi
         else
             log_error "Cannot continue: no previous configuration found"
             exit 1

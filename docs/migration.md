@@ -281,7 +281,15 @@ bash prepare-migration.sh --no-data
 
 ### FTP (`--with-ftp`)
 
-FTP is off by default: no vsftpd package, no service, no ufw rule for 21/30000-31000, no FTP password on the site user, and `FTP_USERNAME`/`FTP_PASSWORD` are not required in `config.env`. Opt in with `--with-ftp` (or `INSTALL_FTP=1`) on `migrate.sh` or `setup.sh`. Pass it again on `--continue`; it is not stored in state.
+FTP is off by default: no vsftpd package, no service, no ufw rule for 21/30000-31000, no system user, and `FTP_USERNAME`/`FTP_PASSWORD` are not required in `config.env`. Site files are owned by `www-data:www-data` (dirs 755, files 644).
+
+Opt in with `--with-ftp` (or `INSTALL_FTP=1`):
+
+- `prepare-migration.sh --with-ftp` asks for the FTP password and adds the FTP credentials to `config.env`.
+- `migrate.sh … --with-ftp` / `setup.sh … --with-ftp` install vsftpd (passive ports 30000-31000), create the site user and keep the `user:www-data` 775/664 layout.
+- The choice is stored in `state.json` (`"with_ftp"`); `--continue` uses the stored value.
+
+`config.env` also carries `PROD_DB_HOST`/`STAGE_DB_HOST`. If `DB_HOST` is `127.0.0.1` or `::1`, the DB user is also created for that host (TCP); a remote host only gives a warning.
 
 ### Restart Migration
 

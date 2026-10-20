@@ -33,6 +33,12 @@ setup_system() {
     mkdir -p "/home/stage.$DOMAIN"
     log_success "Directories created"
     
+    if [[ "$WITH_FTP" != "1" ]]; then
+        log_info "No FTP: skipping system user, files are owned by www-data"
+        update_step_status "setup_system" "completed"
+        return 0
+    fi
+    
     print_substep "Creating system user: $USER..."
     
     if ! grep -q "/usr/sbin/nologin" /etc/shells; then
@@ -42,13 +48,8 @@ setup_system() {
     if id "$USER" &>/dev/null; then
         log_warning "User $USER already exists"
     else
-        # Without FTP the user only owns the files; leave its password locked
-        local passwd_args=()
-        if [[ "$WITH_FTP" == "1" ]]; then
-            ENCYPASSWD=$(perl -e 'print crypt($ARGV[0], "password")' "$PASSWORD")
-            passwd_args=(-p "$ENCYPASSWD")
-        fi
-        if ! useradd -m -g www-data "${passwd_args[@]}" -d "/home/$DOMAIN" "$USER" &>> "$LOG_FILE"; then
+        ENCYPASSWD=$(perl -e 'print crypt($ARGV[0], "password")' "$PASSWORD")
+        if ! useradd -m -g www-data -p "$ENCYPASSWD" -d "/home/$DOMAIN" "$USER" &>> "$LOG_FILE"; then
             log_error "Failed to create user"
             update_step_status "setup_system" "failed"
             exit 1
@@ -60,11 +61,7 @@ setup_system() {
             exit 1
         fi
         
-        if [[ "$WITH_FTP" == "1" ]]; then
-            log_success "User $USER created with password from config.env"
-        else
-            log_success "User $USER created (no password, FTP disabled)"
-        fi
+        log_success "User $USER created with password from config.env"
     fi
     
     update_step_status "setup_system" "completed"

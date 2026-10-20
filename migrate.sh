@@ -63,6 +63,7 @@ source "$SCRIPT_DIR/lib/common/apache.sh"
 source "$SCRIPT_DIR/lib/common/firewall.sh"
 source "$SCRIPT_DIR/lib/migrate/database.sh"
 source "$SCRIPT_DIR/lib/common/ftp.sh"
+source "$SCRIPT_DIR/lib/common/permissions.sh"
 source "$SCRIPT_DIR/lib/migrate/files.sh"
 source "$SCRIPT_DIR/lib/common/wpcli.sh"
 
@@ -204,7 +205,8 @@ Options:
   --restart             Restart migration from beginning
   --no-data             Create empty DBs (config.env credentials), import nothing,
                         skip .sql validation. Mode is stored in state.json.
-  --with-ftp            Install and configure vsftpd (default: off; or INSTALL_FTP=1)
+  --with-ftp            Install vsftpd and create the site user (default: off; or
+                        INSTALL_FTP=1). Stored in state.json.
   -h, --help            Show this help message
 
 Required Files (in migration directory):
@@ -384,14 +386,19 @@ main() {
             log_error "Cannot continue: no previous state found"
             exit 1
         fi
-        # The stored mode wins so a resumed --no-data run never imports
-        local state_data_mode
-        state_data_mode=$(get_state_data_mode)
+        # The stored modes win so a resumed run behaves like the first one
+        local state_data_mode state_with_ftp
+        state_data_mode=$(get_state_value "data_mode" "full")
         if [[ "$state_data_mode" == "no-data" ]]; then
             NO_DATA=1
         elif [[ "$NO_DATA" == "1" ]]; then
             log_warning "State was created without --no-data; ignoring --no-data on continue"
             NO_DATA=0
+        fi
+        state_with_ftp=$(get_state_value "with_ftp" "$WITH_FTP")
+        if [[ "$state_with_ftp" != "$WITH_FTP" ]]; then
+            log_warning "Using FTP setting from state (with_ftp=$state_with_ftp)"
+            WITH_FTP="$state_with_ftp"
         fi
     else
         create_initial_state
